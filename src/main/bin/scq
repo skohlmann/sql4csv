@@ -1,0 +1,18 @@
+#!/bin/bash
+
+function source_dir {
+    local SOURCE="${BASH_SOURCE[0]}"
+    DIR="$( dirname "$SOURCE" )"
+    while [ -h "$SOURCE" ]
+    do
+        SOURCE="$(readlink "$SOURCE")"
+        [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+        DIR="$( cd -P "$( dirname "$SOURCE"  )" && pwd )"
+    done
+    DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+}
+
+source_dir
+
+echo $*
+java -cp "$DIR/lib/*" de.speexx.csv.table.app.Application $*
