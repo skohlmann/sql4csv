@@ -14,5 +14,4 @@ function source_dir {
 
 source_dir
 
-echo $*
 java -cp "$DIR/lib/*" de.speexx.csv.table.app.Application $*
