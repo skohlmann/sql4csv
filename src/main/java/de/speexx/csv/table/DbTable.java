@@ -50,6 +50,7 @@ import java.sql.Timestamp;
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.joining;
 import static de.speexx.csv.table.util.UuidSupport.shortUuid;
+import java.util.ArrayList;
 import java.util.Optional;
 
 final class DbTable implements Table {
@@ -359,8 +360,11 @@ final class DbTable implements Table {
         }
         
         public Iterator<String> originals() {
-            return this.originalToReplacement.keySet().iterator();
+            final List<String> originals = new ArrayList<>(this.originalToReplacement.keySet());
+            originals.sort((s1, s2) -> s2.length() - s1.length());
+            return originals.iterator();
         }
+
         public Iterator<String> replacements() {
             return this.replacementToOriginal.keySet().iterator();
         }
