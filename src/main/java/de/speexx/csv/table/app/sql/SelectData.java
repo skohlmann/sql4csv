@@ -54,7 +54,7 @@ public final class SelectData implements SelectQuery {
                 fromWasLast.set(false);
                 return newTableName;
             }
-            if (qp.equalsIgnoreCase(FROM_CLAUSE)) {
+            if (FROM_CLAUSE.equalsIgnoreCase(qp)) {
                 fromFound.set(true);
                 fromWasLast.set(true);
             }

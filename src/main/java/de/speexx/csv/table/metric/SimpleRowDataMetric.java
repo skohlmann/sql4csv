@@ -44,9 +44,9 @@ public final class SimpleRowDataMetric implements RowDataMetric {
     private static final List<TypeTransformer> TRANSFORMERS = new ArrayList<>(Arrays.asList(
             TypeTransformer.of(STRING, DATETIME),
             TypeTransformer.of(STRING, DATE),
+            TypeTransformer.of(STRING, INTEGER),
             TypeTransformer.of(STRING, DECIMAL),
-            TypeTransformer.of(STRING, TIME),
-            TypeTransformer.of(STRING, INTEGER)
+            TypeTransformer.of(STRING, TIME)
         )
     );
 
