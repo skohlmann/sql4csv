@@ -30,6 +30,8 @@ import java.util.Objects;
 import static org.apache.commons.csv.CSVFormat.RFC4180;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Reads CSV files. Currently CSV files with format RFC 4180 are supported only.
@@ -37,12 +39,16 @@ import org.apache.commons.csv.CSVRecord;
  */
 public final class CsvReader implements RowReader {
 
+    private static final Logger LOG = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+
     static final String TYPE_MAP_POSTFIX = ".map";
     
     private CSVParser parser;
     private Map<String, Integer> headerMap;
     private Iterator<CSVRecord> itr;
     private List<EntryDescriptor> descriptors;
+    private final Reader reader;
+    private boolean ownReader;
 
     /** Creates a new {@code CsvReader} for the given <em>reader</em>.
      * @param reader the reader to read the CSV content from
@@ -50,6 +56,9 @@ public final class CsvReader implements RowReader {
      * @throws IOException if is not possible to init the reader. 
      */
     public CsvReader(final Reader reader) throws IOException {
+        Objects.requireNonNull(reader, "reader is null");
+        this.reader = reader;
+        this.ownReader = false;
         init(reader);
     }
     
@@ -60,26 +69,27 @@ public final class CsvReader implements RowReader {
      * @throws IOException if is not possible to init the reader. 
      */
     public CsvReader(final String path) throws IOException, FileNotFoundException {
-        try (final Reader reader = new FileReader(path)) {
-            init(reader);
-        }
+        this(new FileReader(path));
+        this.ownReader = true;
     }
 
     void init(final Reader reader) throws IOException {
-        Objects.requireNonNull(reader, "reader is null");
-        this.parser = RFC4180.withFirstRecordAsHeader().parse(reader);
-        this.headerMap = this.parser.getHeaderMap();
-        this.itr = this.parser.iterator();
+        synchronized(this) {
+            Objects.requireNonNull(reader, "reader is null");
+            this.parser = RFC4180.withFirstRecordAsHeader().parse(reader);
+            this.headerMap = this.parser.getHeaderMap();
+            this.itr = this.parser.iterator();
 
-        final int headerMapSize = this.headerMap.size();
-        this.descriptors = new ArrayList<>(headerMapSize);
-        for (int i = 0; i < headerMapSize; i++) {
-            for (final Map.Entry<String, Integer> e : this.headerMap.entrySet()) {
-                if (e.getValue() == i) {
-                    final EntryDescriptorBuilder edb = new EntryDescriptorBuilder();
-                    edb.addName(e.getKey());
-                    // TODO: add here type support
-                    this.descriptors.add(edb.build());
+            final int headerMapSize = this.headerMap.size();
+            this.descriptors = new ArrayList<>(headerMapSize);
+            for (int i = 0; i < headerMapSize; i++) {
+                for (final Map.Entry<String, Integer> e : this.headerMap.entrySet()) {
+                    if (e.getValue() == i) {
+                        final EntryDescriptorBuilder edb = new EntryDescriptorBuilder();
+                        edb.addName(e.getKey());
+                        // TODO: add here type support
+                        this.descriptors.add(edb.build());
+                    }
                 }
             }
         }
@@ -112,6 +122,9 @@ public final class CsvReader implements RowReader {
 
     @Override
     public void close() throws Exception {
+        if (this.ownReader) {
+            this.reader.close();
+        }
         this.parser.close();
     }
 
