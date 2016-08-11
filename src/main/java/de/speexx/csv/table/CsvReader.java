@@ -87,7 +87,6 @@ public final class CsvReader implements RowReader {
                     if (e.getValue() == i) {
                         final EntryDescriptorBuilder edb = new EntryDescriptorBuilder();
                         edb.addName(e.getKey());
-                        // TODO: add here type support
                         this.descriptors.add(edb.build());
                     }
                 }
@@ -110,7 +109,6 @@ public final class CsvReader implements RowReader {
                 
                 CsvReader.this.descriptors.stream().forEach((desc) -> {
                     final String value = record.get(desc.getName());
-                    // TODO: add type support here
                     final SimpleEntry<String> entry = new SimpleEntry<>(value, desc);
                     entries.add(entry);
                 });

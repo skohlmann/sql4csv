@@ -64,18 +64,23 @@ public class Application {
         final Configuration conf = new Configuration();
         final JCommander jc = new JCommander(conf);
         jc.parse(args);
+        
+        if (conf.isHelp()) {
+            jc.usage();
+            return;
+        }
 
-        // LOG.info("Load table");
         final Optional<List<Table>> tables = loadTable(conf);
-        // LOG.info("Execute query");
         final Optional<RowReader> rows = executeQuery(conf, tables.orElseThrow(() -> new TableException("No table available")));
         if (rows.isPresent()) {
-            // LOG.info("Export result");
             exportResult(conf, rows.get());
         }
     }
     
     Optional<List<Table>> loadTable(final Configuration conf) throws Exception {
+        if (conf.isVerbose()) {LOG.info("Load table");}
+        final long loadStart = System.currentTimeMillis();
+
         final SelectData selectData = conf.getQueryData();
         final SelectQueryData queryData = selectData.getQueryData();
 
@@ -83,13 +88,19 @@ public class Application {
         for (final FromInfo fromInfo : queryData.getFromInfo()) {
 
             final RowReader reader = createSourceReader(fromInfo);
-            final SimpleRowDataMetric metric = new SimpleRowDataMetric();
-            final TypeIndentifyRowReaderDelegate delegationReader = new TypeIndentifyRowReaderDelegate(reader, metric);
-        
-            final Table table = loadTableFromSource(fromInfo, delegationReader);
-            // LOG.info("Adjust table");
-            adjustTableColumns(table, metric);
-            tables.add(table);
+            if (conf.isWithoutTypeDetections()) {
+                final Table table = loadTableFromSource(fromInfo, reader);
+                doVerboseLog(conf, "Load table tock {}ms", System.currentTimeMillis() - loadStart);
+                tables.add(table);
+            } else {
+                final SimpleRowDataMetric metric = new SimpleRowDataMetric();
+                final TypeIndentifyRowReaderDelegate delegationReader = new TypeIndentifyRowReaderDelegate(reader, metric);
+
+                final Table table = loadTableFromSource(fromInfo, delegationReader);
+                doVerboseLog(conf, "Load table tock {}ms", System.currentTimeMillis() - loadStart);
+                adjustTableColumns(conf, table, metric);
+                tables.add(table);
+            }
         }
         
         return Optional.of(tables);
@@ -100,27 +111,31 @@ public class Application {
         return new CsvReader(source);
     }
 
-    Table loadTableFromSource(final FromInfo fromInfo, final TypeIndentifyRowReaderDelegate delegationReader) {
+    Table loadTableFromSource(final FromInfo fromInfo, final RowReader delegationReader) {
         final String adjusted = fromInfo.getAdjustedFrom();
         final TableBuilder tableBuilder = TableBuilder.of();
         return tableBuilder.addName(adjusted).addRowReader(delegationReader).build();
     }
 
-    void adjustTableColumns(final Table table, final SimpleRowDataMetric metric) {
+    void adjustTableColumns(final Configuration conf, final Table table, final SimpleRowDataMetric metric) {
         assert Objects.nonNull(table) : "Table is null";
         assert Objects.nonNull(metric) : "Metric is null";
         
-        LOG.debug("Entry descriptors before transforming: {}", table.getEntryDescriptors());
+        if (conf.isVerbose()) {LOG.info("Adjust column types");}
+        final long adjustStart = System.currentTimeMillis();
         table.getEntryDescriptors().stream().map((desc) -> desc.getName()).forEach((columnName) -> {
             final Optional<EntryDescriptor.Type> mostSignificantType = metric.getMostSignificantTypeForName(columnName);
             if (mostSignificantType.isPresent()) {
                 final EntryDescriptor.Type type = mostSignificantType.get();
                 if (type != EntryDescriptor.Type.STRING) { // From CSV there are only strings, so ignore that
+                    final long changeStart = System.currentTimeMillis();
+                    doVerboseLog(conf, "    Change column  '{}' to type {}", columnName, type);
                     table.changeColumnType(columnName, type);
+                    doVerboseLog(conf, "    Changed column '{}' to type {} in {}ms", columnName, type, System.currentTimeMillis() - changeStart);
                 }
             }
         });
-        LOG.debug("Entry descriptors after transforming: {}", table.getEntryDescriptors());
+        doVerboseLog(conf, "Adjust tables tock {}ms", System.currentTimeMillis() - adjustStart);
     }
 
     Optional<RowReader> executeQuery(final Configuration conf, final List<Table> tables) throws Exception {
@@ -130,10 +145,8 @@ public class Application {
         // At this time only one table is supported. Might be improved later.
         if (!tables.isEmpty()) {
             final SelectQueryData queryData = conf.getQueryData().getQueryData();
-            LOG.debug("EXECUTE QUERY: {}", queryData);
             final String select = queryData.getAdjustedQuery().getQuery();
             final Table table = tables.get(0);
-            LOG.debug("TABLE: {}", table);
             final RowReader result = table.executeSql(select);
             return Optional.of(result);
         }
@@ -165,5 +178,12 @@ public class Application {
         }
         final List<String> headers = descriptors.stream().map(desc -> desc.getName()).collect(Collectors.toList());
         return CSVFormat.RFC4180.withHeader(headers.toArray(new String[headers.size()])).print(System.out);
+    }
+    
+    void doVerboseLog(final Configuration conf, final String message, final Object... values) {
+        assert Objects.nonNull(conf);
+        if (conf.isVerbose()) {
+            LOG.info(message, values);
+        }
     }
 }

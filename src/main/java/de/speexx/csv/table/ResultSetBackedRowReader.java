@@ -132,6 +132,7 @@ class ResultSetBackedRowReader implements RowReader {
                     return entries.listIterator();
                 }
 
+                @Override
                 public String toString() {
                     return "Row{" + entries + "}";
                 }

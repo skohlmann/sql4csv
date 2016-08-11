@@ -48,10 +48,11 @@ import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import static java.util.Objects.nonNull;
-import static java.util.stream.Collectors.joining;
-import static de.speexx.csv.table.util.UuidSupport.shortUuid;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Optional;
+import static java.util.stream.Collectors.joining;
+import static de.speexx.csv.table.util.UuidSupport.shortUuid;
 
 final class DbTable implements Table {
      
@@ -87,7 +88,7 @@ final class DbTable implements Table {
         
         getJdbcDriverClass();
         final String jdbcUrl = getJdbcUrlTemplate().replace(REPLACABLE, getName());
-        LOG.trace("JDBC URL: {}", jdbcUrl);
+        LOG.debug("JDBC URL: {}", jdbcUrl);
         
         try {
             this.connection = DriverManager.getConnection(jdbcUrl);
@@ -310,71 +311,7 @@ final class DbTable implements Table {
     public List<EntryDescriptor> getEntryDescriptors() {
         return Collections.unmodifiableList(this.descriptors);
     }
-    
-    static final class OriginalReplacementMap {
         
-        private static final String PREFIX = "c";
-        
-        private final Map<String, String> originalToReplacement = new HashMap<>();
-        private final Map<String, String> replacementToOriginal = new HashMap<>();
-        
-        void addOriginalAndReplacement(final String original, final String replacement) {
-            Objects.requireNonNull(original, "orginal is null");
-            Objects.requireNonNull(replacement, "replacement is null");
-            if (this.originalToReplacement.containsKey(adjustCase(original))) {
-                throw new DoubleKeyException(original, "Key duplicate: " + original);
-            }
-            if (this.replacementToOriginal.containsKey(adjustCase(replacement))) {
-                throw new DoubleKeyException(original, "Replacement duplicate: " + replacement);
-            }
-
-            this.originalToReplacement.put(adjustCase(original), adjustCase(replacement));
-            this.replacementToOriginal.put(adjustCase(replacement), adjustCase(original));
-        }
-        
-        String adjustCase(final String s) {
-            assert Objects.nonNull(s) : "value to adjust is null";
-            return s.toLowerCase(Locale.ENGLISH);
-        }
-
-        public String addOriginal(final String original) {
-            final String replacement = PREFIX + shortUuid();
-            addOriginalAndReplacement(original, replacement);
-            return replacement;
-        }
-        
-        public Optional<String> replacementForOriginal(final String original) {
-            final String lower = adjustCase(original);
-            if (this.originalToReplacement.containsKey(lower)) {
-                return Optional.of(this.originalToReplacement.get(lower));
-            }
-            return Optional.empty();
-        }
-        
-        public Optional<String> originalForReplacement(final String replacement) {
-            final String lower = adjustCase(replacement);
-            if (this.replacementToOriginal.containsKey(lower)) {
-                return Optional.of(this.replacementToOriginal.get(lower));
-            }
-            return Optional.empty();
-        }
-        
-        public Iterator<String> originals() {
-            final List<String> originals = new ArrayList<>(this.originalToReplacement.keySet());
-            originals.sort((s1, s2) -> s2.length() - s1.length());
-            return originals.iterator();
-        }
-
-        public Iterator<String> replacements() {
-            return this.replacementToOriginal.keySet().iterator();
-        }
-
-        @Override
-        public String toString() {
-            return "OriginalReplacementMap{" + "originalToReplacement=" + originalToReplacement + ", replacementToOriginal=" + replacementToOriginal + '}';
-        }
-    }
-    
     @Override
     public void changeColumnType(final String columnName, final EntryDescriptor.Type newType) {
         Objects.requireNonNull(columnName, "columnName is null");
@@ -441,75 +378,119 @@ final class DbTable implements Table {
         LOG.trace("SELECT STMT: " + selectStmtString);
         LOG.trace("UPDATE STMT: " + updateStmtString);
         
+        Object to = null;
         try (final PreparedStatement selectStmt = this.connection.prepareStatement(selectStmtString);
              final ResultSet result = selectStmt.executeQuery()) {
             while (result.next()) {
                 final int row = result.getInt(1);
-                Object to;
-                switch (fromType) {
-                    case DATE: {
-                        to = transformer.transform(result.getDate(2)).get();
-                        break;
-                    }
-                    case DATETIME: {
-                        to = transformer.transform(result.getTimestamp(2)).get();
-                        break;
-                    }
-                    case TIME: {
-                        to = transformer.transform(result.getTime(2)).get();
-                        break;
-                    }
-                    case DECIMAL: {
-                        to = transformer.transform(result.getDouble(2)).get();
-                        break;
-                    }
-                    case INTEGER: {
-                        to = transformer.transform(result.getLong(2)).get();
-                        break;
-                    }
-                    case STRING: {
-                        to = transformer.transform(result.getString(2)).get();
-                        break;
-                    }
-                    default:
-                        throw new TransformationException("unsupported type: " + fromType);
-                }
-                try (final PreparedStatement insertStmt = this.connection.prepareStatement(updateStmtString)) {
-                    switch (toType) {
+                try {
+                    switch (fromType) {
                         case DATE: {
-                            insertStmt.setDate(1, (Date) to);
+                            to = transformer.transform(result.getDate(2)).get();
                             break;
                         }
                         case DATETIME: {
-                            insertStmt.setTimestamp(1, (Timestamp) to);
+                            to = transformer.transform(result.getTimestamp(2)).get();
                             break;
                         }
                         case TIME: {
-                            insertStmt.setTime(1, (Time) to);
+                            to = transformer.transform(result.getTime(2)).get();
                             break;
                         }
                         case DECIMAL: {
-                            insertStmt.setDouble(1, (Double) to);
+                            to = transformer.transform(result.getDouble(2)).get();
                             break;
                         }
                         case INTEGER: {
-                            insertStmt.setLong(1, (Long) to);
+                            to = transformer.transform(result.getLong(2)).get();
                             break;
                         }
                         case STRING: {
-                            insertStmt.setString(1, (String) to);
+                            to = transformer.transform(result.getString(2)).get();
                             break;
                         }
                         default:
                             throw new TransformationException("unsupported type: " + fromType);
                     }
-                    insertStmt.setInt(2, row);
-                    insertStmt.executeUpdate();
+                } catch (final RuntimeException e) {
+                    doLogTransformationError(result.getDate(2), fromColumn, fromType, toColumn, toType, this.replacementMap);
+                    throw new TransformationException(e);
+                }
+                try (final PreparedStatement insertStmt = this.connection.prepareStatement(updateStmtString)) {
+                    try {
+                        switch (toType) {
+                            case DATE: {
+                                if (to != null) {
+                                    insertStmt.setDate(1, (Date) to);
+                                } else {
+                                    insertStmt.setNull(1, Types.DATE);
+                                }
+                                break;
+                            }
+                            case DATETIME: {
+                                if (to != null) {
+                                    insertStmt.setTimestamp(1, (Timestamp) to);
+                                } else {
+                                    insertStmt.setNull(1, Types.TIMESTAMP);
+                                }
+                                break;
+                            }
+                            case TIME: {
+                                if (to != null) {
+                                    insertStmt.setTime(1, (Time) to);
+                                } else {
+                                    insertStmt.setNull(1, Types.TIME);
+                                }
+                                break;
+                            }
+                            case DECIMAL: {
+                                final Double d = (Double) to;
+                                if (d != null && !d.isNaN() && !d.isInfinite()) {
+                                    insertStmt.setDouble(1, d);
+                                } else {
+                                    insertStmt.setNull(1, Types.DECIMAL);
+                                }
+                                break;
+                            }
+                            case INTEGER: {
+                                if (to != null) {
+                                    insertStmt.setLong(1, (Long) to);
+                                } else {
+                                    insertStmt.setNull(1, Types.BIGINT);
+                                }
+                                break;
+                            }
+                            case STRING: {
+                                if (to != null) {
+                                    insertStmt.setString(1, (String) to);
+                                } else {
+                                    insertStmt.setNull(1, Types.VARCHAR);
+                                }
+                                break;
+                            }
+                            default:
+                                throw new TransformationException("unsupported type: " + fromType);
+                        }
+                        insertStmt.setInt(2, row);
+                        insertStmt.executeUpdate();
+                    } catch (final SQLException e) {
+                        doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
+                        throw new TransformationException(e);
+                    }
+                } catch (final SQLException e) {
+                    doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
+                    throw new TransformationException(e);
                 }
             }
         } catch (final SQLException e) {
+            doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
             throw new TransformationException(e);
         }
+    }
+    
+    void doLogTransformationError(final Object... values) {
+        assert values.length == 5;
+        LOG.error("To value: {} for fromColumn {} (type: {}) to toColumn {} (type {})  - {}", values);
     }
     
     static final EntryDescriptorSupport.TypeChangeableEntryDescriptor findEntryDescriptorForName(final List<? extends EntryDescriptor> descriptors,
@@ -576,4 +557,70 @@ final class DbTable implements Table {
         return "DbTable{" + "tableName=" + tableName + ", internalTableName=" + internalTableName + ", replacementMap=" + replacementMap + ", descriptors=" + descriptors + ", rowNumberColumnName=" + rowNumberColumnName + '}';
     }
     
+    static final class OriginalReplacementMap {
+        
+        private static final String PREFIX = "c";
+        
+        private final Map<String, String> adjustedOriginalToReplacement = new HashMap<>();
+        private final Map<String, String> adjustedOriginalToOriginal = new HashMap<>();
+        private final Map<String, String> replacementToAdjustedOriginal = new HashMap<>();
+        
+        void addOriginalAndReplacement(final String original, final String replacement) {
+            Objects.requireNonNull(original, "orginal is null");
+            Objects.requireNonNull(replacement, "replacement is null");
+            if (this.adjustedOriginalToReplacement.containsKey(adjustCase(original))) {
+                throw new DoubleKeyException(original, "Key duplicate: " + original);
+            }
+            if (this.replacementToAdjustedOriginal.containsKey(adjustCase(replacement))) {
+                throw new DoubleKeyException(original, "Replacement duplicate: " + replacement);
+            }
+
+            this.adjustedOriginalToReplacement.put(adjustCase(original), adjustCase(replacement));
+            this.replacementToAdjustedOriginal.put(adjustCase(replacement), adjustCase(original));
+            this.adjustedOriginalToOriginal.put(adjustCase(original), original);
+        }
+        
+        String adjustCase(final String s) {
+            assert Objects.nonNull(s) : "value to adjust is null";
+            return s.toLowerCase(Locale.ENGLISH);
+        }
+
+        public String addOriginal(final String original) {
+            final String replacement = PREFIX + shortUuid();
+            addOriginalAndReplacement(original, replacement);
+            return replacement;
+        }
+        
+        public Optional<String> replacementForOriginal(final String original) {
+            final String adjusted = adjustCase(original);
+            if (this.adjustedOriginalToReplacement.containsKey(adjusted)) {
+                return Optional.of(this.adjustedOriginalToReplacement.get(adjusted));
+            }
+            return Optional.empty();
+        }
+        
+        public Optional<String> originalForReplacement(final String replacement) {
+            final String adjusted = adjustCase(replacement);
+            if (this.replacementToAdjustedOriginal.containsKey(adjusted)) {
+                final String adjustedOriginal = this.replacementToAdjustedOriginal.get(adjusted);
+                return Optional.of(this.adjustedOriginalToOriginal.get(adjustedOriginal));
+            }
+            return Optional.empty();
+        }
+        
+        public Iterator<String> originals() {
+            final List<String> originals = new ArrayList<>(this.adjustedOriginalToOriginal.values());
+            originals.sort((s1, s2) -> s2.length() - s1.length());
+            return originals.iterator();
+        }
+
+        public Iterator<String> replacements() {
+            return this.replacementToAdjustedOriginal.keySet().iterator();
+        }
+
+        @Override
+        public String toString() {
+            return "OriginalReplacementMap{" + "originalToReplacement=" + adjustedOriginalToReplacement + ", replacementToOriginal=" + replacementToAdjustedOriginal + '}';
+        }
+    }
 }

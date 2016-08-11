@@ -17,21 +17,22 @@
  */
 package de.speexx.csv.table.metric;
 
-import de.speexx.csv.table.EntryDescriptor;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import de.speexx.csv.table.EntryDescriptor.Type;
+import java.util.Collections;
 
 final class TypeMetric {
-   final Map<String, Map<Class<?>, AtomicInteger>> nameTypeFrequence = new HashMap<>();
 
-    public void incrementTypeForName(final String name, final Class<?> type) {
+    private final Map<String, Map<Type, AtomicInteger>> nameTypeFrequence = new HashMap<>();
+
+    public void incrementTypeForName(final String name, final Type type) {
         Objects.requireNonNull(name, "name is null");
         Objects.requireNonNull(type, "type class is null");
 
-        Map<Class<?>, AtomicInteger> typeCountMap = this.nameTypeFrequence.get(name);
+        Map<Type, AtomicInteger> typeCountMap = this.nameTypeFrequence.get(name);
         if (typeCountMap == null) {
             typeCountMap = new HashMap<>();
             this.nameTypeFrequence.put(name, typeCountMap);
@@ -44,10 +45,14 @@ final class TypeMetric {
         typeCount.incrementAndGet();
     }
 
-    final Map<Class<?>, AtomicInteger> getFrequencyMapForName(final String name) {
+    final Map<Type, AtomicInteger> getFrequencyMapForName(final String name) {
         if (name == null) {
             return null;
         }
         return this.nameTypeFrequence.get(name);
+    }
+    
+    Map<String, Map<Type, AtomicInteger>> getNameTypeFrequence() {
+        return Collections.unmodifiableMap(this.nameTypeFrequence);
     }
 }

@@ -23,8 +23,17 @@ import de.speexx.csv.table.app.sql.SelectData;
 
 public class Configuration {
     
-    @Parameter(names={"-n", "--no-header"})
-    private boolean withOutHeader = false;
+    @Parameter(names={"-h", "--no-header"}, description="If set no column name header is in the output.")
+    private boolean withoutHeader = false;
+    
+    @Parameter(names={"-t", "--no-type"}, description="If set no automated type detection is performed.")
+    private boolean withoutTypeDetections = false;
+
+    @Parameter(names={"-v", "--verbose"}, description="Print out more information.")
+    private boolean verbose = false;
+    
+    @Parameter(names={"--help"}, description="Prints a help reference.")
+    private boolean help = false;
     
     @ParametersDelegate
     private final SelectData selectData = new SelectData();
@@ -35,6 +44,18 @@ public class Configuration {
     }
 
     public boolean isWithoutHeader() {
-        return this.withOutHeader;
+        return this.withoutHeader;
+    }
+
+    public boolean isWithoutTypeDetections() {
+        return this.withoutTypeDetections;
+    }
+
+    public boolean isVerbose() {
+        return this.verbose;
+    }
+
+    public boolean isHelp() {
+        return help;
     }
 }

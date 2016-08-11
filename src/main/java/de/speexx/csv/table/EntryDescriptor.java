@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,29 +50,31 @@ public interface EntryDescriptor {
      */
     public enum Type {
         /** The implementations backed this type by the Java type {@link Integer}. */
-        INTEGER("integer",   "BIGINT",    Types.BIGINT,    Integer.class, Long.class, BigInteger.class, Short.class, Byte.class),
+        INTEGER("integer",   "BIGINT",    Types.BIGINT,    TypeIdentifier::isIntegerType,  Integer.class, Long.class, BigInteger.class, Short.class, Byte.class),
         /** The implementations backed this type by the Java type {@link Double}. */
-        DECIMAL("decimal",   "DOUBLE",    Types.DOUBLE,    Double.class, Float.class, BigDecimal.class),
+        DECIMAL("decimal",   "DOUBLE",    Types.DOUBLE,    TypeIdentifier::isDecimalType,  Double.class, Float.class, BigDecimal.class),
         /** A string is a string is a string. */
-        STRING("string",     "VARCHAR",   Types.VARCHAR,   String.class),
+        STRING("string",     "VARCHAR",   Types.VARCHAR,   TypeIdentifier::isStringType,   String.class),
         /** The implementations backed this type by the Java type {@link LocalDate}. */
-        DATE("date",         "DATE",      Types.DATE,      Date.class, java.util.Date.class, LocalDate.class),
+        DATE("date",         "DATE",      Types.DATE,      TypeIdentifier::isDateType,     Date.class, java.util.Date.class, LocalDate.class),
         /** The implementations backed this type by the Java type {@link LocalDateTime}. */
-        DATETIME("datetime", "TIMESTAMP", Types.TIMESTAMP, Timestamp.class, LocalDateTime.class),
+        DATETIME("datetime", "TIMESTAMP", Types.TIMESTAMP, TypeIdentifier::isDatetimeType, Timestamp.class, LocalDateTime.class),
         /** The implementations backed this type by the Java type {@link LocalTime}. */
-        TIME("time",         "TIME",      Types.TIME,      Time.class, LocalTime.class);
-        
+        TIME("time",         "TIME",      Types.TIME,      TypeIdentifier::isTimeType,     Time.class, LocalTime.class);
+
         private static final Map<Class<?>, Type> TYPE_FOR_CLASS_LOOKUP = new HashMap<>();
-        
+
         private final String typeName;
         private final String sqlTypeName;
         private final int sqlType;
         private final Set<Class<?>> supportedJavaClassesForType;
-        
-        Type(final String name, final String sqlTypeName, final int sqlType, final Class<?>... supportedClasses) {
+        private final Predicate<String> checker;
+
+        Type(final String name, final String sqlTypeName, final int sqlType, final Predicate<String> checker, final Class<?>... supportedClasses) {
             this.typeName = name;
             this.sqlTypeName = sqlTypeName;
             this.sqlType = sqlType;
+            this.checker = checker;
             this.supportedJavaClassesForType = new HashSet<>(Arrays.asList(supportedClasses));
         }
 
@@ -92,9 +95,18 @@ public interface EntryDescriptor {
             }
             return Optional.of(TYPE_FOR_CLASS_LOOKUP.get(clazz));
         }
+        
+        /** Checks for the given string to be corresponding to the given Type. 
+         * @param value the string value to test
+         * @return <tt>true</tt> if the given <em>value</em> is of this type. <code>false</code> otherwise.
+         */
+        public boolean isTypeMatch(final String value) {
+            return this.checker.test(value);
+        }
 
         /**
          * A string representation of the type.
+         * @return the name of the type
          */
         public String getTypeName() {
             return this.typeName;
@@ -102,6 +114,7 @@ public interface EntryDescriptor {
         
         /**
          * The SQL name for the type.
+         * @return the SQL type name
          */
         public String getSqlTypeName() {
             return this.sqlTypeName;

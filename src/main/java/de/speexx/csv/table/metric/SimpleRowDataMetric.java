@@ -19,8 +19,6 @@ package de.speexx.csv.table.metric;
 
 import de.speexx.csv.table.EntryDescriptor;
 import de.speexx.csv.table.Row;
-import de.speexx.csv.table.TransformationException;
-import de.speexx.csv.table.transformer.TypeTransformer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -28,25 +26,19 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import static de.speexx.csv.table.util.IteratorSupport.asStream;
-import java.sql.Date;
-import java.sql.Time;
-import java.sql.Timestamp;
 import static de.speexx.csv.table.EntryDescriptor.Type.STRING;
 import static de.speexx.csv.table.EntryDescriptor.Type.DATE;
 import static de.speexx.csv.table.EntryDescriptor.Type.DATETIME;
 import static de.speexx.csv.table.EntryDescriptor.Type.TIME;
 import static de.speexx.csv.table.EntryDescriptor.Type.DECIMAL;
 import static de.speexx.csv.table.EntryDescriptor.Type.INTEGER;
+import de.speexx.csv.table.EntryDescriptor.Type;
+import static de.speexx.csv.table.util.IteratorSupport.asStream;
 
 public final class SimpleRowDataMetric implements RowDataMetric {
 
-    private static final List<TypeTransformer> TRANSFORMERS = new ArrayList<>(Arrays.asList(
-            TypeTransformer.of(STRING, DATETIME),
-            TypeTransformer.of(STRING, DATE),
-            TypeTransformer.of(STRING, INTEGER),
-            TypeTransformer.of(STRING, DECIMAL),
-            TypeTransformer.of(STRING, TIME)
+    private static final List<Type> CHECKERS = new ArrayList<>(Arrays.asList(
+            DATETIME, DATE, INTEGER, DECIMAL, TIME, STRING
         )
     );
 
@@ -56,25 +48,30 @@ public final class SimpleRowDataMetric implements RowDataMetric {
         if (Objects.isNull(name)) {
             return Optional.empty();
         }
-        final Map<Class<?>, AtomicInteger> frequencyMap = this.metric.getFrequencyMapForName(name);
+        final Map<Type, AtomicInteger> frequencyMap = this.metric.getFrequencyMapForName(name);
 
         if (Objects.isNull(frequencyMap)) {
             return Optional.empty();
         }
         
-        if (frequencyMap.containsKey(Long.class)) {
-            return Optional.of(INTEGER);
-        }
-        if (frequencyMap.containsKey(Time.class)) {
-            return Optional.of(TIME);
-        }
-        if (frequencyMap.containsKey(Double.class)) {
+        if (frequencyMap.containsKey(DECIMAL) 
+                && !(frequencyMap.containsKey(STRING) || frequencyMap.containsKey(TIME) || frequencyMap.containsKey(DATE) || frequencyMap.containsKey(DATETIME))) {
             return Optional.of(DECIMAL);
         }
-        if (frequencyMap.containsKey(Date.class)) {
+        if (frequencyMap.containsKey(INTEGER) 
+                && !(frequencyMap.containsKey(STRING) || frequencyMap.containsKey(TIME) || frequencyMap.containsKey(DATE) || frequencyMap.containsKey(DATETIME))) {
+            return Optional.of(INTEGER);
+        }
+        if (frequencyMap.containsKey(TIME) 
+                && !(frequencyMap.containsKey(STRING) || frequencyMap.containsKey(INTEGER) || frequencyMap.containsKey(DECIMAL) || frequencyMap.containsKey(DATE) || frequencyMap.containsKey(DATETIME))) {
+            return Optional.of(TIME);
+        }
+        if (frequencyMap.containsKey(DATE) 
+                && !(frequencyMap.containsKey(STRING) || frequencyMap.containsKey(INTEGER) || frequencyMap.containsKey(DECIMAL) || frequencyMap.containsKey(TIME) || frequencyMap.containsKey(DATETIME))) {
             return Optional.of(DATE);
         }
-        if (frequencyMap.containsKey(Timestamp.class)) {
+        if (frequencyMap.containsKey(DATETIME) 
+                && !(frequencyMap.containsKey(STRING) || frequencyMap.containsKey(INTEGER) || frequencyMap.containsKey(DECIMAL) || frequencyMap.containsKey(DATE) || frequencyMap.containsKey(TIME))) {
             return Optional.of(DATETIME);
         }
 
@@ -90,24 +87,21 @@ public final class SimpleRowDataMetric implements RowDataMetric {
         asStream(row, row.size() >= 20 /* check this */ ).filter(Objects::nonNull)
                     .forEach(e -> {
             
-            assert Objects.nonNull(TRANSFORMERS);
-            for (final TypeTransformer transformer : TRANSFORMERS) {
-                try {
-                    final Optional<Object> target = transformer.transform(e.getValue());
-                    if (target.isPresent()) {
-                        final Class<?> targetType = target.get().getClass();
-                        final EntryDescriptor descriptor = e.getDescriptor();
-                        if (Objects.nonNull(descriptor)) {
-                            assert Objects.nonNull(this.metric);
-                            this.metric.incrementTypeForName(descriptor.getName(), targetType);
-                            break;
-                        }
+            assert Objects.nonNull(CHECKERS);
+            for (final Type checker : CHECKERS) {
+                if (checker.isTypeMatch((String) e.getValue())) {
+                    final EntryDescriptor descriptor = e.getDescriptor();
+                    if (Objects.nonNull(descriptor)) {
+                        assert Objects.nonNull(this.metric);
+                        this.metric.incrementTypeForName(descriptor.getName(), checker);
+                        break;
                     }
-                } catch (final TransformationException ex) {
-                    // can be ignored because the behavior is to measure frequency
-                    // not to really transform.
                 }
             }
         });
+    }
+    
+    final TypeMetric getTypeMetric() {
+        return this.metric;
     }
 }

@@ -27,14 +27,10 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import static java.util.stream.Collectors.joining;
 
 
 public final class SelectData implements SelectQuery {
-
-    private static final Logger LOG = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
     
     private static final String FROM_CLAUSE = "from";
 
@@ -60,9 +56,6 @@ public final class SelectData implements SelectQuery {
             }
             return qp;
         }).collect(Collectors.toList());
-
-        //LOG.info("ORIGINAL QUERY: {}", SelectData.this.getQuery());
-        //LOG.info("ADJUSTED QUERY: {}", stringListToString(newQuery));
 
         return new SelectQueryData() {
             
