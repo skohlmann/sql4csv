@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.concurrent.atomic.AtomicInteger;
+import static de.speexx.csv.table.EntryDescriptorBuilder.of;
 
 
 public class DbTableTest {
@@ -84,15 +85,27 @@ public class DbTableTest {
             final DbTable table = new DbTable("test");
             table.init(csvReader);
 
-            table.changeColumnType("sint", EntryDescriptor.Type.INTEGER);
+            table.changeColumnTypes(
+                    of().addName("sint").addType(EntryDescriptor.Type.INTEGER).build(),
+                    of().addName("sdouble").addType(EntryDescriptor.Type.DECIMAL).build()
+            );
             final List<EntryDescriptor> descriptors = table.getEntryDescriptors();
-            final EntryDescriptor descriptor = DbTable.findEntryDescriptorForName(descriptors, "sint");
+            final EntryDescriptor sIntDescriptor = DbTable.findEntryDescriptorForName(descriptors, "sint");
 
-            assertEquals(EntryDescriptor.Type.INTEGER, descriptor.getType());
+            assertEquals(EntryDescriptor.Type.INTEGER, sIntDescriptor.getType());
             
-            final RowReader rows = table.executeSql("select sint from test");
-            assertEquals(1, rows.getEntryDescriptors().size());
-            rows.forEach(row -> row.forEach(entry -> assertEquals(123L, entry.getValue())));
+            final RowReader sIntRows = table.executeSql("select sint from test");
+            assertEquals(1, sIntRows.getEntryDescriptors().size());
+            sIntRows.forEach(row -> row.forEach(entry -> assertEquals(123L, entry.getValue())));
+            
+
+            final EntryDescriptor sDoubleDescriptor = DbTable.findEntryDescriptorForName(descriptors, "sdouble");
+
+            assertEquals(EntryDescriptor.Type.DECIMAL, sDoubleDescriptor.getType());
+            
+            final RowReader sDoubleRows = table.executeSql("select sdouble from test");
+            assertEquals(1, sDoubleRows.getEntryDescriptors().size());
+            sDoubleRows.forEach(row -> row.forEach(entry -> assertEquals(1.5D, entry.getValue())));
         }
     }
 }

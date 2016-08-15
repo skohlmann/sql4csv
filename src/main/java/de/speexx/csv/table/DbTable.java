@@ -44,13 +44,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import static de.speexx.csv.table.EntryDescriptorSupport.cloneEntryDescriptorList;
 import de.speexx.csv.table.transformer.UnsupportedTransformationException;
-import java.sql.Date;
-import java.sql.Time;
-import java.sql.Timestamp;
 import static java.util.Objects.nonNull;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Optional;
+import static de.speexx.csv.table.EntryDescriptorBuilder.of;
 import static java.util.stream.Collectors.joining;
 import static de.speexx.csv.table.util.UuidSupport.shortUuid;
 
@@ -311,180 +308,205 @@ final class DbTable implements Table {
     public List<EntryDescriptor> getEntryDescriptors() {
         return Collections.unmodifiableList(this.descriptors);
     }
+    
+    void checkDescriptors(final EntryDescriptor... descriptors) {
+        Objects.requireNonNull(descriptors, "descriptors is null");
+        assert Objects.nonNull(descriptors);
+
+        for (final EntryDescriptor descriptor : descriptors) {
+            Objects.nonNull(descriptor);
+            Objects.nonNull(descriptor.getName());
+            Objects.nonNull(descriptor.getType());
+        }
+    }
         
     @Override
-    public void changeColumnType(final String columnName, final EntryDescriptor.Type newType) {
-        Objects.requireNonNull(columnName, "columnName is null");
-        Objects.requireNonNull(newType, "newType is null");
-
-        final TypeTransformer transformer =
-                detectTypeTransformerForColmn(columnName, newType)
-                        .orElseThrow(() -> new TableException("Transformation of column '" + columnName
-                                                                + "' to type '" + newType + "' not possible."));
-        
-        LOG.trace("Start changeColumnToType...");
-        
-        final String realColumnName = this.replacementMap.replacementForOriginal(columnName)
-                .orElseThrow(() -> new TableException("Unknown column with name: " + columnName));
-
-        final String intermediateTableName = "i_" + shortUuid();
-        final EntryDescriptorSupport.TypeChangeableEntryDescriptor descriptor = 
-                findEntryDescriptorForName(this.descriptors, columnName);
-        if (Objects.isNull(descriptor)) {
-            throw new TableException("Unknown descriptor for name: " + columnName);
+    public void changeColumnTypes(final EntryDescriptor... descriptors) {
+        if (descriptors == null || descriptors.length == 0) {
+            return;
         }
-        
-        try (final Statement alterStmt = this.connection.createStatement();
-             final Statement dropStmt = this.connection.createStatement();
-             final Statement renameStmt = this.connection.createStatement()) {
+        checkDescriptors(descriptors);
+        final List<ChangeColumnTypeData> changeDatas = new ArrayList<>();
 
-            final String alterTableStmtString = "ALTER TABLE " + this.internalTableName + " ADD COLUMN " + intermediateTableName + " " + newType.getSqlTypeName() + (newType == EntryDescriptor.Type.STRING ? "(" + MAX_VARCHAR + ")" : "");
-            LOG.trace("ALTER TABLE STMT: " + alterTableStmtString);
+        for (final EntryDescriptor desc : descriptors) {
+            final String columnName = desc.getName();
+            final EntryDescriptor.Type newType = desc.getType();
+            final TypeTransformer transformer =
+                    detectTypeTransformerForColmn(columnName, newType)
+                            .orElseThrow(() -> new TableException("Transformation of column '" + columnName
+                                                                    + "' to type '" + newType + "' not possible."));
+
+            LOG.debug("Start changeColumnToType...");
+
+            final String realColumnName = this.replacementMap.replacementForOriginal(columnName)
+                    .orElseThrow(() -> new TableException("Unknown column with name: " + columnName));
+
+            final String intermediateColumnName = "i_" + shortUuid();
+            final EntryDescriptorSupport.TypeChangeableEntryDescriptor descriptor = 
+                    findEntryDescriptorForName(this.descriptors, columnName);
+            if (Objects.isNull(descriptor)) {
+                throw new TableException("Unknown descriptor for name: " + columnName);
+            }
+
+            final String alterTableStmtString = "ALTER TABLE " + this.internalTableName + " ADD COLUMN " + intermediateColumnName + " " + newType.getSqlTypeName() + (newType == EntryDescriptor.Type.STRING ? "(" + MAX_VARCHAR + ")" : "");
+            LOG.debug("ALTER TABLE STMT: " + alterTableStmtString);
             final String dropColumnStmtString = "ALTER TABLE " + this.internalTableName + " DROP COLUMN " + realColumnName;
-            LOG.trace("       DROP STMT: " + dropColumnStmtString);
-            final String renameColumnStmtString = "RENAME COLUMN " + this.internalTableName + "." + intermediateTableName + " TO " + realColumnName;
-            LOG.trace("     RENAME STMT: " + renameColumnStmtString);
+            LOG.debug("       DROP STMT: " + dropColumnStmtString);
+            final String renameColumnStmtString = "RENAME COLUMN " + this.internalTableName + "." + intermediateColumnName + " TO " + realColumnName;
+            LOG.debug("     RENAME STMT: " + renameColumnStmtString);
 
-            alterStmt.executeUpdate(alterTableStmtString);
-            //transformAndCopy(realColumnName, descriptor.getType(), intermediateTableName, newType, transformer);
-            transformAndCopy(realColumnName, descriptor.getType(), intermediateTableName, newType, transformer);
-            dropStmt.executeUpdate(dropColumnStmtString);
-            renameStmt.executeUpdate(renameColumnStmtString);
-            
-            this.connection.commit();
+            final ChangeColumnTypeData changeData = new ChangeColumnTypeData();
+            changeData.setDropColumnStatement(dropColumnStmtString);
+            changeData.setNewColumnStatement(alterTableStmtString);
+            changeData.setRenameColumnStatement(renameColumnStmtString);
+            changeData.setToDescriptor(of().addName(intermediateColumnName).addType(newType).build());
+            changeData.setFromDescriptor(of().addName(realColumnName).addType(descriptor.getType()).build());
+            changeData.setSourceDescriptor(desc);
+            changeData.setTransformer(transformer);
+            changeDatas.add(changeData);
 
-        } catch (final SQLException e) {
-            throw new TableException(e);
         }
-        
-        descriptor.setType(newType);
+
+        createNewColumns(this.connection, changeDatas);
+        transformAndCopy(this.connection, changeDatas);
+        dropOldColumnAndRenameIntermediateColumn(this.connection, changeDatas);
+        updateDescriptors(changeDatas);
+
+        try {
+            this.connection.commit();
+        } catch (final SQLException ex) {
+            throw new TableException(ex);
+        }
+
+    }
+
+    void updateDescriptors(final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(changeDatas);
+    
+        for (final ChangeColumnTypeData changeData : changeDatas) {
+            final EntryDescriptor sourceDescriptor = changeData.getSourceDescriptor();
+            final String sourceColumnName = sourceDescriptor.getName();
+            final EntryDescriptorSupport.TypeChangeableEntryDescriptor newSourceDescriptor = findEntryDescriptorForName(this.descriptors, sourceColumnName);
+            newSourceDescriptor.setType(changeData.getToDescriptor().getType());
+        }
     }
     
-    void transformAndCopy(final String fromColumn,
-                          final EntryDescriptor.Type fromType,
-                          final String toColumn,
-                          final EntryDescriptor.Type toType,
-                          final TypeTransformer transformer) {
+    void transformAndCopy(final Connection con, final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(con);
+        assert Objects.nonNull(changeDatas);
 
-        assert nonNull(fromColumn) : "fromColumn name is null";
-        assert nonNull(toColumn) : "toColumn name is null";
-        assert nonNull(transformer) : "transformer name is null";
-        assert nonNull(fromType) : "fromType is null";
-        assert nonNull(toType) : "toType is null";
- 
-        final String selectStmtString = "SELECT " + this.rowNumberColumnName + ", " + fromColumn + " FROM " + this.internalTableName;
-        final String updateStmtString = "UPDATE " + this.internalTableName + " SET " + toColumn + " = (?) WHERE " + this.rowNumberColumnName + " = ?";
-
-        LOG.trace("SELECT STMT: " + selectStmtString);
-        LOG.trace("UPDATE STMT: " + updateStmtString);
-        
-        Object to = null;
+        final String selectStmtString = createSelectStatement(changeDatas);
+        final String updateStmtString = createUpdateStatement(changeDatas);
+        LOG.debug("SELECT Stmt: {}", selectStmtString);
+        LOG.debug("UPDATE Stmt: {}", updateStmtString);
         try (final PreparedStatement selectStmt = this.connection.prepareStatement(selectStmtString);
              final ResultSet result = selectStmt.executeQuery()) {
             while (result.next()) {
-                final int row = result.getInt(1);
-                try {
-                    switch (fromType) {
-                        case DATE: {
-                            to = transformer.transform(result.getDate(2)).get();
-                            break;
-                        }
-                        case DATETIME: {
-                            to = transformer.transform(result.getTimestamp(2)).get();
-                            break;
-                        }
-                        case TIME: {
-                            to = transformer.transform(result.getTime(2)).get();
-                            break;
-                        }
-                        case DECIMAL: {
-                            to = transformer.transform(result.getDouble(2)).get();
-                            break;
-                        }
-                        case INTEGER: {
-                            to = transformer.transform(result.getLong(2)).get();
-                            break;
-                        }
-                        case STRING: {
-                            to = transformer.transform(result.getString(2)).get();
-                            break;
-                        }
-                        default:
-                            throw new TransformationException("unsupported type: " + fromType);
-                    }
-                } catch (final RuntimeException e) {
-                    doLogTransformationError(result.getDate(2), fromColumn, fromType, toColumn, toType, this.replacementMap);
-                    throw new TransformationException(e);
-                }
-                try (final PreparedStatement insertStmt = this.connection.prepareStatement(updateStmtString)) {
-                    try {
-                        switch (toType) {
-                            case DATE: {
-                                if (to != null) {
-                                    insertStmt.setDate(1, (Date) to);
+                final int row = result.getInt(this.rowNumberColumnName);
+
+                try (final PreparedStatement updateStmt = this.connection.prepareStatement(updateStmtString)) {
+                    final AtomicInteger statementIndex = new AtomicInteger();
+                    changeDatas.forEach(changeData -> {
+                        final String fromColumn = changeData.getFromDescriptor().getName();
+                        try {
+                            final Object fromValue = result.getObject(fromColumn);
+                            if (fromValue != null) {
+                                final Optional<Object> toValueOpt = changeData.getTransformer().transform(fromValue);
+                                if (toValueOpt.isPresent()) {
+                                    final Object toValue = toValueOpt.get();
+                                    if (!(toValue instanceof Double) || !(((Double) toValue).isInfinite() || ((Double) toValue).isNaN())) {
+                                        updateStmt.setObject(statementIndex.incrementAndGet(), toValue, changeData.getToDescriptor().getType().getSqlType());
+                                    } else {
+                                        updateStmt.setNull(statementIndex.incrementAndGet(), changeData.getToDescriptor().getType().getSqlType());
+                                    }
                                 } else {
-                                    insertStmt.setNull(1, Types.DATE);
+                                    updateStmt.setNull(statementIndex.incrementAndGet(), changeData.getToDescriptor().getType().getSqlType());
                                 }
-                                break;
+                            } else {
+                                updateStmt.setNull(statementIndex.incrementAndGet(), changeData.getToDescriptor().getType().getSqlType());
                             }
-                            case DATETIME: {
-                                if (to != null) {
-                                    insertStmt.setTimestamp(1, (Timestamp) to);
-                                } else {
-                                    insertStmt.setNull(1, Types.TIMESTAMP);
-                                }
-                                break;
-                            }
-                            case TIME: {
-                                if (to != null) {
-                                    insertStmt.setTime(1, (Time) to);
-                                } else {
-                                    insertStmt.setNull(1, Types.TIME);
-                                }
-                                break;
-                            }
-                            case DECIMAL: {
-                                final Double d = (Double) to;
-                                if (d != null && !d.isNaN() && !d.isInfinite()) {
-                                    insertStmt.setDouble(1, d);
-                                } else {
-                                    insertStmt.setNull(1, Types.DECIMAL);
-                                }
-                                break;
-                            }
-                            case INTEGER: {
-                                if (to != null) {
-                                    insertStmt.setLong(1, (Long) to);
-                                } else {
-                                    insertStmt.setNull(1, Types.BIGINT);
-                                }
-                                break;
-                            }
-                            case STRING: {
-                                if (to != null) {
-                                    insertStmt.setString(1, (String) to);
-                                } else {
-                                    insertStmt.setNull(1, Types.VARCHAR);
-                                }
-                                break;
-                            }
-                            default:
-                                throw new TransformationException("unsupported type: " + fromType);
+                        } catch (final SQLException e) {
+                            throw new TransformationException(e);
                         }
-                        insertStmt.setInt(2, row);
-                        insertStmt.executeUpdate();
-                    } catch (final SQLException e) {
-                        doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
-                        throw new TransformationException(e);
-                    }
+                    });
+                    updateStmt.setInt(statementIndex.incrementAndGet(), row);
+                    updateStmt.executeUpdate();
                 } catch (final SQLException e) {
-                    doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
                     throw new TransformationException(e);
                 }
-            }
+           }
         } catch (final SQLException e) {
-            doLogTransformationError(to, fromColumn, toColumn, fromType, toType, this.replacementMap);
             throw new TransformationException(e);
+        }
+    }
+
+    String createSelectStatement(final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(changeDatas);
+//        final String selectStmtString = "SELECT " + this.rowNumberColumnName + ", " + fromColumn + " FROM " + this.internalTableName;
+
+        final StringBuilder selectBuilder = new StringBuilder("SELECT ");
+        selectBuilder.append(changeDatas.stream().map(data -> data.getFromDescriptor().getName()).collect(joining(", ")));
+        selectBuilder.append(", ");
+        selectBuilder.append(this.rowNumberColumnName);
+        selectBuilder.append(" FROM ");
+        selectBuilder.append(this.internalTableName);
+
+        return selectBuilder.toString();
+    }
+
+    String createUpdateStatement(final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(changeDatas);
+//        final String updateStmtString = "UPDATE " + this.internalTableName + " SET " + toColumn + " = (?) WHERE " + this.rowNumberColumnName + " = ?";
+
+        final StringBuilder selectBuilder = new StringBuilder("UPDATE ");
+        selectBuilder.append(this.internalTableName);
+        selectBuilder.append(" SET ");
+        selectBuilder.append(changeDatas.stream().map(data -> data.getToDescriptor().getName()).collect(joining(" = ?, ")));
+        selectBuilder.append(" = ? WHERE ");
+        selectBuilder.append(this.rowNumberColumnName);
+        selectBuilder.append(" = ?");
+
+        return selectBuilder.toString();
+    }
+
+    void createNewColumns(final Connection con, final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(con);
+        assert Objects.nonNull(changeDatas);
+
+        changeDatas.forEach(changeData -> {
+            LOG.debug("Create new Column for {}", changeData);
+            try (final Statement alterStmt = this.connection.createStatement()) {
+                alterStmt.executeUpdate(changeData.getNewColumnStatement());
+            } catch (final SQLException e) {
+                throw new TableException(e);
+            }
+        });
+        try {
+            this.connection.commit();
+        } catch (final SQLException e) {
+            throw new TableException(e);
+        }
+    }
+    
+    void dropOldColumnAndRenameIntermediateColumn(final Connection con, final List<ChangeColumnTypeData> changeDatas) {
+        assert Objects.nonNull(con);
+        assert Objects.nonNull(changeDatas);
+
+        changeDatas.forEach(changeData -> {
+            try (final Statement dropStmt = this.connection.createStatement();
+                 final Statement renameStmt = this.connection.createStatement()) {
+                LOG.debug("Drop old Column for {}", changeData);
+                dropStmt.executeUpdate(changeData.getDropColumnStatement());
+                LOG.debug("Rename to new Column for {}", changeData);
+                renameStmt.executeUpdate(changeData.getRenameColumnStatement());
+            } catch (final SQLException e) {
+                throw new TableException(e);
+            }
+        });
+        try {
+            this.connection.commit();
+        } catch (final SQLException e) {
+            throw new TableException(e);
         }
     }
     
@@ -497,6 +519,7 @@ final class DbTable implements Table {
                                                                                                  final String descriptorName) {
         Objects.requireNonNull(descriptors, "descriptors is null");
         Objects.requireNonNull(descriptorName, "descriptorName is null");
+
         for (final EntryDescriptor descriptor : descriptors) {
             if (descriptorName.equals(descriptor.getName())) {
                 return (EntryDescriptorSupport.TypeChangeableEntryDescriptor) descriptor;
@@ -621,6 +644,79 @@ final class DbTable implements Table {
         @Override
         public String toString() {
             return "OriginalReplacementMap{" + "originalToReplacement=" + adjustedOriginalToReplacement + ", replacementToOriginal=" + replacementToAdjustedOriginal + '}';
+        }
+    }
+        
+    static final class ChangeColumnTypeData {
+
+        private EntryDescriptor fromDescriptor;
+        private EntryDescriptor toDescriptor;
+        private EntryDescriptor sourceDescriptor;
+        private TypeTransformer transformer;
+        private String newColumnStatement;
+        private String dropColumnStatement;
+        private String renameColumnStatement;
+
+        public EntryDescriptor getSourceDescriptor() {
+            return this.sourceDescriptor;
+        }
+
+        public void setSourceDescriptor(EntryDescriptor sourceDescriptor) {
+            this.sourceDescriptor = sourceDescriptor;
+        }
+
+        
+        public String getNewColumnStatement() {
+            return this.newColumnStatement;
+        }
+
+        public void setNewColumnStatement(String newColumnStatement) {
+            this.newColumnStatement = newColumnStatement;
+        }
+
+        public EntryDescriptor getFromDescriptor() {
+            return this.fromDescriptor;
+        }
+
+        public void setFromDescriptor(EntryDescriptor fromDescriptor) {
+            this.fromDescriptor = fromDescriptor;
+        }
+
+        public EntryDescriptor getToDescriptor() {
+            return this.toDescriptor;
+        }
+
+        public void setToDescriptor(EntryDescriptor toDescriptor) {
+            this.toDescriptor = toDescriptor;
+        }
+
+        public TypeTransformer getTransformer() {
+            return this.transformer;
+        }
+
+        public void setTransformer(TypeTransformer transformer) {
+            this.transformer = transformer;
+        }
+
+        public String getDropColumnStatement() {
+            return this.dropColumnStatement;
+        }
+
+        public void setDropColumnStatement(String dropColumnStatement) {
+            this.dropColumnStatement = dropColumnStatement;
+        }
+
+        public String getRenameColumnStatement() {
+            return this.renameColumnStatement;
+        }
+
+        public void setRenameColumnStatement(String renameColumnStatement) {
+            this.renameColumnStatement = renameColumnStatement;
+        }
+
+        @Override
+        public String toString() {
+            return "ChangeColumnTypeData{" + "fromDescriptor=" + this.fromDescriptor + ", sourceDescriptor=" + this.sourceDescriptor + ", toDescriptor=" + this.toDescriptor + ", transformer=" + this.transformer + ", newColumnStatement=" + this.newColumnStatement + ", dropColumnStatement=" + this.dropColumnStatement + ", renameColumnStatement=" + this.renameColumnStatement + '}';
         }
     }
 }

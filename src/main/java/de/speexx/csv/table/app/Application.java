@@ -123,19 +123,27 @@ public class Application {
         
         if (conf.isVerbose()) {LOG.info("Adjust column types");}
         final long adjustStart = System.currentTimeMillis();
-        table.getEntryDescriptors().stream().map((desc) -> desc.getName()).forEach((columnName) -> {
+        
+        final List<EntryDescriptor> changeDescriptors = new ArrayList<>();
+        table.getEntryDescriptors().forEach(desc -> {
+            final String columnName = desc.getName();
             final Optional<EntryDescriptor.Type> mostSignificantType = metric.getMostSignificantTypeForName(columnName);
             if (mostSignificantType.isPresent()) {
                 final EntryDescriptor.Type type = mostSignificantType.get();
                 if (type != EntryDescriptor.Type.STRING) { // From CSV there are only strings, so ignore that
-                    final long changeStart = System.currentTimeMillis();
                     doVerboseLog(conf, "    Change column  '{}' to type {}", columnName, type);
-                    table.changeColumnType(columnName, type);
-                    doVerboseLog(conf, "    Changed column '{}' to type {} in {}ms", columnName, type, System.currentTimeMillis() - changeStart);
+                    changeDescriptors.add(new EntryDescriptor() {
+                        @Override public EntryDescriptor.Type getType() {return type;}
+                        @Override public String getName() {return columnName;}
+                    });
                 }
             }
         });
-        doVerboseLog(conf, "Adjust tables tock {}ms", System.currentTimeMillis() - adjustStart);
+        doVerboseLog(conf, "Adjusting column types starting");
+        final long changeStart = System.currentTimeMillis();
+        table.changeColumnTypes(changeDescriptors.toArray(new EntryDescriptor[changeDescriptors.size()]));
+
+        doVerboseLog(conf, "Adjust columns tock {}ms", System.currentTimeMillis() - changeStart);
     }
 
     Optional<RowReader> executeQuery(final Configuration conf, final List<Table> tables) throws Exception {

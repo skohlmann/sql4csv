@@ -53,18 +53,17 @@ public interface Table {
     RowReader executeSql(final String sql);
 
     /**
-     * Change the type of a column from the current type to the given <em>newType</em>.
+     * Change the type of the columns from the current type to the given <em>newTypes</em>.
      * <p>If the given column for the given <em>columnName</em> does not exists,
      * the implementation returns silently. If the current type of the given
      * column is the same as of the given <em>newType</em> the implementation
-     * return silently.</p>
+     * returns silently.</p>
      * <p>Implementation detail: currently only the transformation from 
      * {@link EntryDescriptor.Type#STRING} to the other {@linkplain EntryDescriptor.Type types}
      * is possible.</p>
-     * @param columnName the name of the column to change. Must not {@code null}.
-     * @param newType the new type
+     * @param descriptors list of entry descriptors for the target type of the given column
      * @throws NullPointerException if a parameter is {@code null}
      * @throws TableException if the transformation of the type is not possible
      */
-    void changeColumnType(final String columnName, final EntryDescriptor.Type newType);
+    void changeColumnTypes(final EntryDescriptor... descriptors);
 }

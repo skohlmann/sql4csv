@@ -24,6 +24,10 @@ final class EntryDescriptorBuilder {
     private String name;
     private EntryDescriptor.Type type;
     
+    public static EntryDescriptorBuilder of() {
+        return new EntryDescriptorBuilder();
+    }
+    
     public EntryDescriptorBuilder addName(final String name) {
         this.name = name;
         return this;

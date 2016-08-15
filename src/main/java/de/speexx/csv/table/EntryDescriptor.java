@@ -121,6 +121,14 @@ public interface EntryDescriptor {
         }
 
         /**
+         * The SQL type for the type.
+         * @return the SQL type
+         */
+        public int getSqlType() {
+            return this.sqlType;
+        }
+
+        /**
          * Detects the type for a given {@linkplain Types sql type value}.
          * @param sqlType the {@linkplain Types sql type}
          * @return if and only if it is not possible to detect a type for the given
