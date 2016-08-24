@@ -66,6 +66,7 @@ final class DbTable implements Table {
     private final OriginalReplacementMap replacementMap = new OriginalReplacementMap();
     private List<? extends EntryDescriptor> descriptors;
     private String rowNumberColumnName;
+    private String jdbcUrl;
     
     public DbTable(final String name) {
         this.tableName = name;
@@ -84,19 +85,35 @@ final class DbTable implements Table {
         fillReplacementMap(this.descriptors);
         
         getJdbcDriverClass();
-        final String jdbcUrl = getJdbcUrlTemplate().replace(REPLACABLE, getName());
-        LOG.debug("JDBC URL: {}", jdbcUrl);
         
         try {
-            this.connection = DriverManager.getConnection(jdbcUrl);
-            createDbTable(this.connection, this.descriptors);
+            final Connection conn = getDbConnection(false);
+            createDbTable(conn, this.descriptors);
             final String insertStatementTemplate = createInsertDbTablePreparedStatement(this.descriptors);            
             final AtomicInteger rowNumber = new AtomicInteger();
-            reader.forEach(row -> fillInDbTable(this.connection, insertStatementTemplate, row, rowNumber));
+            reader.forEach(row -> fillInDbTable(conn, insertStatementTemplate, row, rowNumber));
             
         } catch (final SQLException ex) {
             throw new TableException(ex);
         }
+    }
+    
+    String getJdbcUrl() {
+        if (this.jdbcUrl == null) {
+            this.jdbcUrl = getJdbcUrlTemplate().replace(REPLACABLE, getName());
+            LOG.debug("JDBC URL: {}", this.jdbcUrl);
+        }
+        return this.jdbcUrl;
+    }
+
+    Connection getDbConnection(final boolean allwaysNewConnection) throws SQLException {
+        if (allwaysNewConnection) {
+            return DriverManager.getConnection(getJdbcUrl());
+        }
+        if (this.connection == null || this.connection.isClosed()) {
+            this.connection = DriverManager.getConnection(getJdbcUrl());
+        }
+        return this.connection;
     }
     
     void fillReplacementMap(final List<? extends EntryDescriptor> descs) {
@@ -143,7 +160,6 @@ final class DbTable implements Table {
     
     @Override
     public RowReader executeSql(final String sql) {
-        assert this.connection != null;
         
         final AtomicReference<String> useSql = new AtomicReference<>(sql);
         this.replacementMap.originals().forEachRemaining(original -> {
@@ -156,16 +172,16 @@ final class DbTable implements Table {
         });
         
         final String uSql = useSql.get();
-        // From change
+
         final Optional<String> fromPart = extractFromPartFromSelectSql(uSql);
-        final String toExecuteSql = uSql.replace(fromPart.orElseThrow(() -> new TableException("No from part in query: " + uSql)), this.internalTableName);
+        final String toExecuteSql = uSql.replace(fromPart.orElseThrow(() -> new TableException("No from part in query: " + uSql)), getInternalTableName());
         
         try {
-            assert !this.connection.isClosed();
+            assert !getDbConnection(false).isClosed();
 
-            try (final Statement stmt = this.connection.createStatement();
+            try (final Statement stmt = getDbConnection(false).createStatement();
                  final ResultSet result = stmt.executeQuery(toExecuteSql)) {
-                return new ResultSetBackedRowReader(result, this.rowNumberColumnName, this.replacementMap);
+                return new ResultSetBackedRowReader(result, getRowNumberColumnName(), this.replacementMap);
             }
         } catch (final Exception e) {
             throw new TableException(e);
@@ -306,6 +322,9 @@ final class DbTable implements Table {
 
     @Override
     public List<EntryDescriptor> getEntryDescriptors() {
+        if (this.descriptors == null) {
+            throw new IllegalStateException("DbTable not correct initialized");
+        }
         return Collections.unmodifiableList(this.descriptors);
     }
     
@@ -321,14 +340,19 @@ final class DbTable implements Table {
     }
         
     @Override
-    public void changeColumnTypes(final EntryDescriptor... descriptors) {
-        if (descriptors == null || descriptors.length == 0) {
+    public void changeColumnTypes(final EntryDescriptor... newDescriptors) {
+        if (this.descriptors == null) {
+            throw new IllegalStateException("DbTable not correct initialized");
+        }
+
+        if (newDescriptors == null || newDescriptors.length == 0) {
             return;
         }
-        checkDescriptors(descriptors);
+
+        checkDescriptors(newDescriptors);
         final List<ChangeColumnTypeData> changeDatas = new ArrayList<>();
 
-        for (final EntryDescriptor desc : descriptors) {
+        for (final EntryDescriptor desc : newDescriptors) {
             final String columnName = desc.getName();
             final EntryDescriptor.Type newType = desc.getType();
             final TypeTransformer transformer =
@@ -348,11 +372,11 @@ final class DbTable implements Table {
                 throw new TableException("Unknown descriptor for name: " + columnName);
             }
 
-            final String alterTableStmtString = "ALTER TABLE " + this.internalTableName + " ADD COLUMN " + intermediateColumnName + " " + newType.getSqlTypeName() + (newType == EntryDescriptor.Type.STRING ? "(" + MAX_VARCHAR + ")" : "");
+            final String alterTableStmtString = "ALTER TABLE " + getInternalTableName() + " ADD COLUMN " + intermediateColumnName + " " + newType.getSqlTypeName() + (newType == EntryDescriptor.Type.STRING ? "(" + MAX_VARCHAR + ")" : "");
             LOG.debug("ALTER TABLE STMT: " + alterTableStmtString);
-            final String dropColumnStmtString = "ALTER TABLE " + this.internalTableName + " DROP COLUMN " + realColumnName;
+            final String dropColumnStmtString = "ALTER TABLE " + getInternalTableName() + " DROP COLUMN " + realColumnName;
             LOG.debug("       DROP STMT: " + dropColumnStmtString);
-            final String renameColumnStmtString = "RENAME COLUMN " + this.internalTableName + "." + intermediateColumnName + " TO " + realColumnName;
+            final String renameColumnStmtString = "RENAME COLUMN " + getInternalTableName() + "." + intermediateColumnName + " TO " + realColumnName;
             LOG.debug("     RENAME STMT: " + renameColumnStmtString);
 
             final ChangeColumnTypeData changeData = new ChangeColumnTypeData();
@@ -364,16 +388,16 @@ final class DbTable implements Table {
             changeData.setSourceDescriptor(desc);
             changeData.setTransformer(transformer);
             changeDatas.add(changeData);
-
         }
 
-        createNewColumns(this.connection, changeDatas);
-        transformAndCopy(this.connection, changeDatas);
-        dropOldColumnAndRenameIntermediateColumn(this.connection, changeDatas);
-        updateDescriptors(changeDatas);
 
         try {
-            this.connection.commit();
+            final Connection conn = getDbConnection(false);
+            createNewColumns(conn, changeDatas);
+            transformAndCopy(conn, changeDatas);
+            dropOldColumnAndRenameIntermediateColumn(conn, changeDatas);
+            updateDescriptors(changeDatas);
+            conn.commit();
         } catch (final SQLException ex) {
             throw new TableException(ex);
         }
@@ -383,12 +407,12 @@ final class DbTable implements Table {
     void updateDescriptors(final List<ChangeColumnTypeData> changeDatas) {
         assert Objects.nonNull(changeDatas);
     
-        for (final ChangeColumnTypeData changeData : changeDatas) {
+        changeDatas.stream().forEach(changeData -> {
             final EntryDescriptor sourceDescriptor = changeData.getSourceDescriptor();
             final String sourceColumnName = sourceDescriptor.getName();
             final EntryDescriptorSupport.TypeChangeableEntryDescriptor newSourceDescriptor = findEntryDescriptorForName(this.descriptors, sourceColumnName);
             newSourceDescriptor.setType(changeData.getToDescriptor().getType());
-        }
+        });
     }
     
     void transformAndCopy(final Connection con, final List<ChangeColumnTypeData> changeDatas) {
@@ -399,12 +423,13 @@ final class DbTable implements Table {
         final String updateStmtString = createUpdateStatement(changeDatas);
         LOG.debug("SELECT Stmt: {}", selectStmtString);
         LOG.debug("UPDATE Stmt: {}", updateStmtString);
-        try (final PreparedStatement selectStmt = this.connection.prepareStatement(selectStmtString);
+
+        try (final PreparedStatement selectStmt = getDbConnection(false).prepareStatement(selectStmtString);
              final ResultSet result = selectStmt.executeQuery()) {
             while (result.next()) {
-                final int row = result.getInt(this.rowNumberColumnName);
+                final int row = result.getInt(getRowNumberColumnName());
 
-                try (final PreparedStatement updateStmt = this.connection.prepareStatement(updateStmtString)) {
+                try (final PreparedStatement updateStmt = getDbConnection(false).prepareStatement(updateStmtString)) {
                     final AtomicInteger statementIndex = new AtomicInteger();
                     changeDatas.forEach(changeData -> {
                         final String fromColumn = changeData.getFromDescriptor().getName();
@@ -442,28 +467,26 @@ final class DbTable implements Table {
 
     String createSelectStatement(final List<ChangeColumnTypeData> changeDatas) {
         assert Objects.nonNull(changeDatas);
-//        final String selectStmtString = "SELECT " + this.rowNumberColumnName + ", " + fromColumn + " FROM " + this.internalTableName;
 
         final StringBuilder selectBuilder = new StringBuilder("SELECT ");
         selectBuilder.append(changeDatas.stream().map(data -> data.getFromDescriptor().getName()).collect(joining(", ")));
         selectBuilder.append(", ");
-        selectBuilder.append(this.rowNumberColumnName);
+        selectBuilder.append(getRowNumberColumnName());
         selectBuilder.append(" FROM ");
-        selectBuilder.append(this.internalTableName);
+        selectBuilder.append(getInternalTableName());
 
         return selectBuilder.toString();
     }
 
     String createUpdateStatement(final List<ChangeColumnTypeData> changeDatas) {
         assert Objects.nonNull(changeDatas);
-//        final String updateStmtString = "UPDATE " + this.internalTableName + " SET " + toColumn + " = (?) WHERE " + this.rowNumberColumnName + " = ?";
 
         final StringBuilder selectBuilder = new StringBuilder("UPDATE ");
-        selectBuilder.append(this.internalTableName);
+        selectBuilder.append(getInternalTableName());
         selectBuilder.append(" SET ");
         selectBuilder.append(changeDatas.stream().map(data -> data.getToDescriptor().getName()).collect(joining(" = ?, ")));
         selectBuilder.append(" = ? WHERE ");
-        selectBuilder.append(this.rowNumberColumnName);
+        selectBuilder.append(getRowNumberColumnName());
         selectBuilder.append(" = ?");
 
         return selectBuilder.toString();
@@ -475,14 +498,14 @@ final class DbTable implements Table {
 
         changeDatas.forEach(changeData -> {
             LOG.debug("Create new Column for {}", changeData);
-            try (final Statement alterStmt = this.connection.createStatement()) {
+            try (final Statement alterStmt = getDbConnection(false).createStatement()) {
                 alterStmt.executeUpdate(changeData.getNewColumnStatement());
             } catch (final SQLException e) {
                 throw new TableException(e);
             }
         });
         try {
-            this.connection.commit();
+            getDbConnection(false).commit();
         } catch (final SQLException e) {
             throw new TableException(e);
         }
@@ -493,8 +516,8 @@ final class DbTable implements Table {
         assert Objects.nonNull(changeDatas);
 
         changeDatas.forEach(changeData -> {
-            try (final Statement dropStmt = this.connection.createStatement();
-                 final Statement renameStmt = this.connection.createStatement()) {
+            try (final Statement dropStmt = getDbConnection(false).createStatement();
+                 final Statement renameStmt = getDbConnection(false).createStatement()) {
                 LOG.debug("Drop old Column for {}", changeData);
                 dropStmt.executeUpdate(changeData.getDropColumnStatement());
                 LOG.debug("Rename to new Column for {}", changeData);
@@ -504,7 +527,7 @@ final class DbTable implements Table {
             }
         });
         try {
-            this.connection.commit();
+            getDbConnection(false).commit();
         } catch (final SQLException e) {
             throw new TableException(e);
         }

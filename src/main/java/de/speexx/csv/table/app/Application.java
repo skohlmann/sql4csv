@@ -122,12 +122,12 @@ public class Application {
         assert Objects.nonNull(metric) : "Metric is null";
         
         if (conf.isVerbose()) {LOG.info("Adjust column types");}
-        final long adjustStart = System.currentTimeMillis();
         
         final List<EntryDescriptor> changeDescriptors = new ArrayList<>();
         table.getEntryDescriptors().forEach(desc -> {
             final String columnName = desc.getName();
             final Optional<EntryDescriptor.Type> mostSignificantType = metric.getMostSignificantTypeForName(columnName);
+            
             if (mostSignificantType.isPresent()) {
                 final EntryDescriptor.Type type = mostSignificantType.get();
                 if (type != EntryDescriptor.Type.STRING) { // From CSV there are only strings, so ignore that
