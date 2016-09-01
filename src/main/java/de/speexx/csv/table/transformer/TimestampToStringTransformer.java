@@ -20,7 +20,6 @@ package de.speexx.csv.table.transformer;
 import de.speexx.csv.table.TransformationException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.Optional;
 
 class TimestampToStringTransformer implements TypeTransformer<Object, String> {
@@ -32,7 +31,7 @@ class TimestampToStringTransformer implements TypeTransformer<Object, String> {
         if (timestamp == null) {
             return Optional.empty();
         }
-        if (timestamp instanceof LocalTime) {
+        if (timestamp instanceof LocalDateTime) {
             return LOCAL_DATETIME_TRANSFORMER.transform((LocalDateTime) timestamp);
         } else if (timestamp instanceof Timestamp) {
             return LOCAL_DATETIME_TRANSFORMER.transform(((Timestamp) timestamp).toLocalDateTime());
