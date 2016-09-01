@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.concurrent.atomic.AtomicInteger;
 import static de.speexx.csv.table.EntryDescriptorBuilder.of;
+import java.util.Iterator;
 
 
 public class DbTableTest {
@@ -106,6 +107,58 @@ public class DbTableTest {
             final RowReader sDoubleRows = table.executeSql("select sdouble from test");
             assertEquals(1, sDoubleRows.getEntryDescriptors().size());
             sDoubleRows.forEach(row -> row.forEach(entry -> assertEquals(1.5D, entry.getValue())));
+        }
+    }
+    
+    @Test
+    public void checkScqDbFunctionDayOfWeek() throws Exception {
+
+        // Prepare
+        try (final InputStream in = DbTableTest.class.getClassLoader().getResourceAsStream("de/speexx/csv/table/date_for_function.csv");
+             final Reader reader = new InputStreamReader(in);
+             final CsvReader csvReader = new CsvReader(reader)) {
+
+            final DbTable table = new DbTable("test");
+            table.init(csvReader);
+
+            table.changeColumnTypes(
+                of().addName("date1").addType(EntryDescriptor.Type.DATE).build(),
+                of().addName("date2").addType(EntryDescriptor.Type.DATE).build(),
+                of().addName("date3").addType(EntryDescriptor.Type.DATE).build(),
+                of().addName("date4").addType(EntryDescriptor.Type.DATE).build()
+            );
+
+            // Execute
+            final RowReader r = table.executeSql("SELECT SCQ_dow(date1) AS dow1, "
+                                                      + "scq_DOW(date2) AS dow2, "
+                                                      + "scq_woy(date3) AS woy1, "
+                                                      + "scq_WOy(date4) AS woy2  "
+                                              + "from test");
+            
+            // Check
+            final Iterator<Row> rows = r.iterator();
+            final Row row = rows.next();
+            final Iterator<Entry> entries = row.iterator();
+            
+            final Entry e1 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e1.getDescriptor().getType());
+            assertEquals("DOW1", e1.getDescriptor().getName());
+            assertEquals(1L, e1.getValue());
+            
+            final Entry e2 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e2.getDescriptor().getType());
+            assertEquals("DOW2", e2.getDescriptor().getName());
+            assertEquals(7L, e2.getValue());
+            
+            final Entry e3 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e3.getDescriptor().getType());
+            assertEquals("WOY1", e3.getDescriptor().getName());
+            assertEquals(53L, e3.getValue());
+            
+            final Entry e4 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e4.getDescriptor().getType());
+            assertEquals("WOY2", e4.getDescriptor().getName());
+            assertEquals(1L, e4.getValue());
         }
     }
 }

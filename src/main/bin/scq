@@ -14,4 +14,4 @@ function source_dir {
 
 source_dir
 
-java -cp "$DIR/lib/*" de.speexx.csv.table.app.Application $*
+java ${JAVA_OPTS} -cp "$DIR/lib/*" de.speexx.csv.table.app.Application $*

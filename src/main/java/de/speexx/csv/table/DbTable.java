@@ -55,6 +55,15 @@ final class DbTable implements Table {
      
     private static final Logger LOG = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
 
+    private static final String DAY_OF_WEEK_FUNCTION_STMT =
+            "CREATE FUNCTION SCQ_DOW(date DATE) RETURNS INTEGER "
+                + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateSupport.dayOfWeek'";
+    private static final String WEEK_OF_YER_FUNCTION_STMT =
+            "CREATE FUNCTION SCQ_WOY(date DATE) RETURNS INTEGER "
+                + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateSupport.weekOfYear'";
+
     private static final String FROM_CLAUSE = "from";
     private static final String REPLACABLE = "xXx";
     private static final String DERBY_JDBC_URL_TEMPLATE = "jdbc:derby:memory:" + REPLACABLE + ";create=true";
@@ -92,6 +101,8 @@ final class DbTable implements Table {
             final String insertStatementTemplate = createInsertDbTablePreparedStatement(this.descriptors);            
             final AtomicInteger rowNumber = new AtomicInteger();
             reader.forEach(row -> fillInDbTable(conn, insertStatementTemplate, row, rowNumber));
+            
+            addSupportFunctions();
             
         } catch (final SQLException ex) {
             throw new TableException(ex);
@@ -184,6 +195,8 @@ final class DbTable implements Table {
                 return new ResultSetBackedRowReader(result, getRowNumberColumnName(), this.replacementMap);
             }
         } catch (final Exception e) {
+            LOG.info("Query: {}", toExecuteSql);
+            LOG.info("MAP: {}", this.replacementMap);
             throw new TableException(e);
         }
     }
@@ -598,6 +611,30 @@ final class DbTable implements Table {
         return Optional.empty();
     }
 
+    void addSupportFunctions() throws SQLException {
+
+        final Connection conn = this.getDbConnection(false);
+        try (final Statement dayOfWeekStmt = conn.createStatement();
+             final Statement weekOfYearStmt = conn.createStatement()) {
+            try {
+                dayOfWeekStmt.execute(DAY_OF_WEEK_FUNCTION_STMT);
+            } catch (final SQLException e) {
+                final String msg = e.getMessage();
+                if (!msg.contains("FUNCTION 'SCQ_DOW' already exists.")) {
+                    throw e;
+                }
+            }
+            try {
+                weekOfYearStmt.execute(WEEK_OF_YER_FUNCTION_STMT);
+            } catch (final SQLException e) {
+                final String msg = e.getMessage();
+                if (!msg.contains("FUNCTION 'SCQ_WOY' already exists.")) {
+                    throw e;
+                }
+            }
+        }
+    }
+    
     @Override
     public String toString() {
         return "DbTable{" + "tableName=" + tableName + ", internalTableName=" + internalTableName + ", replacementMap=" + replacementMap + ", descriptors=" + descriptors + ", rowNumberColumnName=" + rowNumberColumnName + '}';

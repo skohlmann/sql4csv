@@ -31,6 +31,11 @@
             <outputDirectory>/</outputDirectory>
             <fileMode>700</fileMode>
         </file>
+        <file>
+            <source>${project.basedir}/src/main/bin/scq-cols</source>
+            <outputDirectory>/</outputDirectory>
+            <fileMode>700</fileMode>
+        </file>
     </files>
     <dependencySets>
         <dependencySet>
