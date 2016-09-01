@@ -111,7 +111,7 @@ public class DbTableTest {
     }
     
     @Test
-    public void checkScqDbFunctionDayOfWeek() throws Exception {
+    public void checkScqDbFunctionDayOfWeekAndWeekOfYearForDate() throws Exception {
 
         // Prepare
         try (final InputStream in = DbTableTest.class.getClassLoader().getResourceAsStream("de/speexx/csv/table/date_for_function.csv");
@@ -129,10 +129,62 @@ public class DbTableTest {
             );
 
             // Execute
-            final RowReader r = table.executeSql("SELECT SCQ_dow(date1) AS dow1, "
-                                                      + "scq_DOW(date2) AS dow2, "
-                                                      + "scq_woy(date3) AS woy1, "
-                                                      + "scq_WOy(date4) AS woy2  "
+            final RowReader r = table.executeSql("SELECT SCQ_dowD(date1) AS dow1, "
+                                                      + "scq_DOWd(date2) AS dow2, "
+                                                      + "scq_woyD(date3) AS woy1, "
+                                                      + "scq_WOyd(date4) AS woy2  "
+                                              + "from test");
+            
+            // Check
+            final Iterator<Row> rows = r.iterator();
+            final Row row = rows.next();
+            final Iterator<Entry> entries = row.iterator();
+            
+            final Entry e1 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e1.getDescriptor().getType());
+            assertEquals("DOW1", e1.getDescriptor().getName());
+            assertEquals(1L, e1.getValue());
+            
+            final Entry e2 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e2.getDescriptor().getType());
+            assertEquals("DOW2", e2.getDescriptor().getName());
+            assertEquals(7L, e2.getValue());
+            
+            final Entry e3 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e3.getDescriptor().getType());
+            assertEquals("WOY1", e3.getDescriptor().getName());
+            assertEquals(53L, e3.getValue());
+            
+            final Entry e4 = entries.next();
+            assertEquals(EntryDescriptor.Type.INTEGER, e4.getDescriptor().getType());
+            assertEquals("WOY2", e4.getDescriptor().getName());
+            assertEquals(1L, e4.getValue());
+        }
+    }
+
+    @Test
+    public void checkScqDbFunctionDayOfWeekAndWeekOfYearForTimestamp() throws Exception {
+
+        // Prepare
+        try (final InputStream in = DbTableTest.class.getClassLoader().getResourceAsStream("de/speexx/csv/table/timestamp_for_function.csv");
+             final Reader reader = new InputStreamReader(in);
+             final CsvReader csvReader = new CsvReader(reader)) {
+
+            final DbTable table = new DbTable("test");
+            table.init(csvReader);
+
+            table.changeColumnTypes(
+                of().addName("timestamp1").addType(EntryDescriptor.Type.DATETIME).build(),
+                of().addName("timestamp2").addType(EntryDescriptor.Type.DATETIME).build(),
+                of().addName("timestamp3").addType(EntryDescriptor.Type.DATETIME).build(),
+                of().addName("timestamp4").addType(EntryDescriptor.Type.DATETIME).build()
+            );
+
+            // Execute
+            final RowReader r = table.executeSql("SELECT SCQ_dowT(timestamp1) AS dow1, "
+                                                      + "scq_DOWt(timestamp2) AS dow2, "
+                                                      + "scq_woyt(timestamp3) AS woy1, "
+                                                      + "scq_WOyT(timestamp4) AS woy2  "
                                               + "from test");
             
             // Check

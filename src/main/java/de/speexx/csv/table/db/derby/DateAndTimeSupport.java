@@ -18,12 +18,13 @@
 package de.speexx.csv.table.db.derby;
 
 import java.sql.Date;
+import java.sql.Timestamp;
 import java.time.temporal.IsoFields;
 
 /**
  * Support class for additional functions in Derby DB.
  */
-public class DateSupport {
+public class DateAndTimeSupport {
 
     /**
      * Returns the numerical value of the day of the week. For Monday the value
@@ -32,11 +33,25 @@ public class DateSupport {
      * @param date the date to get the day of week for
      * @return the numerical value of the day of week staring with 1 for Monday.
      */
-    public static Integer dayOfWeek(final Date date) {
+    public static Integer dayOfWeekForDate(final Date date) {
         if (date == null) {
             return null;
         }
         return date.toLocalDate().getDayOfWeek().getValue();
+    }
+
+    /**
+     * Returns the numerical value of the day of the week. For Monday the value
+     * is 1. For Sunday the value is 7.
+     * <p>In case of a given {@code null} as parameter the return value is {@code null}.</p>
+     * @param timestamp the datetime to get the day of week for
+     * @return the numerical value of the day of week staring with 1 for Monday.
+     */
+    public static Integer dayOfWeekForTimestamp(final Timestamp timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+        return timestamp.toLocalDateTime().getDayOfWeek().getValue();
     }
 
     /**
@@ -46,10 +61,24 @@ public class DateSupport {
      * @param date the date to get the week of the year
      * @return the numerical value of the week of the year staring with 1 for first week.
      */
-    public static Integer weekOfYear(final Date date) {
+    public static Integer weekOfYearForDate(final Date date) {
         if (date == null) {
             return null;
         }
         return date.toLocalDate().get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+    }
+
+    /**
+     * Returns the numerical value of the week of a year for the given date.
+     * The week calculation based on the ISO 8601 rules.
+     * <p>In case of a given {@code null} as parameter the return value is {@code null}.</p>
+     * @param timestamp the datetime to get the week of the year
+     * @return the numerical value of the week of the year staring with 1 for first week.
+     */
+    public static Integer weekOfYearForTimestamp(final Timestamp timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+        return timestamp.toLocalDateTime().get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
     }
 }

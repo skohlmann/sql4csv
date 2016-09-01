@@ -55,14 +55,22 @@ final class DbTable implements Table {
      
     private static final Logger LOG = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
 
-    private static final String DAY_OF_WEEK_FUNCTION_STMT =
-            "CREATE FUNCTION SCQ_DOW(date DATE) RETURNS INTEGER "
+    private static final String DAY_OF_WEEK_FUNCTION_STMTOF_DATE =
+            "CREATE FUNCTION SCQ_DOWD(date DATE) RETURNS INTEGER "
                 + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
-                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateSupport.dayOfWeek'";
-    private static final String WEEK_OF_YER_FUNCTION_STMT =
-            "CREATE FUNCTION SCQ_WOY(date DATE) RETURNS INTEGER "
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateAndTimeSupport.dayOfWeekForDate'";
+    private static final String DAY_OF_WEEK_FUNCTION_STMT_OF_TIMESTAMP =
+            "CREATE FUNCTION SCQ_DOWT(timestamp TIMESTAMP) RETURNS INTEGER "
                 + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
-                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateSupport.weekOfYear'";
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateAndTimeSupport.dayOfWeekForTimestamp'";
+    private static final String WEEK_OF_YER_FUNCTION_STMT_OF_DATE =
+            "CREATE FUNCTION SCQ_WOYD(date DATE) RETURNS INTEGER "
+                + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateAndTimeSupport.weekOfYearForDate'";
+    private static final String WEEK_OF_YER_FUNCTION_STMT_OF_TIMESTAMP =
+            "CREATE FUNCTION SCQ_WOYT(timestamp TIMESTAMP) RETURNS INTEGER "
+                + "PARAMETER STYLE JAVA NO SQL RETURNS NULL ON NULL "
+                + "INPUT LANGUAGE JAVA EXTERNAL NAME 'de.speexx.csv.table.db.derby.DateAndTimeSupport.weekOfYearForTimestamp'";
 
     private static final String FROM_CLAUSE = "from";
     private static final String REPLACABLE = "xXx";
@@ -614,21 +622,38 @@ final class DbTable implements Table {
     void addSupportFunctions() throws SQLException {
 
         final Connection conn = this.getDbConnection(false);
-        try (final Statement dayOfWeekStmt = conn.createStatement();
-             final Statement weekOfYearStmt = conn.createStatement()) {
+        try (final Statement dayOfWeekStmtOfDate = conn.createStatement();
+             final Statement dayOfWeekStmtOfTimestamp = conn.createStatement();
+             final Statement weekOfYearStmtOfDate = conn.createStatement();
+             final Statement weekOfYearStmtOfTimestamp = conn.createStatement()) {
             try {
-                dayOfWeekStmt.execute(DAY_OF_WEEK_FUNCTION_STMT);
+                dayOfWeekStmtOfDate.execute(DAY_OF_WEEK_FUNCTION_STMTOF_DATE);
             } catch (final SQLException e) {
                 final String msg = e.getMessage();
-                if (!msg.contains("FUNCTION 'SCQ_DOW' already exists.")) {
+                if (!msg.contains("FUNCTION 'SCQ_DOWD' already exists.")) {
                     throw e;
                 }
             }
             try {
-                weekOfYearStmt.execute(WEEK_OF_YER_FUNCTION_STMT);
+                dayOfWeekStmtOfTimestamp.execute(DAY_OF_WEEK_FUNCTION_STMT_OF_TIMESTAMP);
             } catch (final SQLException e) {
                 final String msg = e.getMessage();
-                if (!msg.contains("FUNCTION 'SCQ_WOY' already exists.")) {
+                if (!msg.contains("FUNCTION 'SCQ_DOWT' already exists.")) {
+                    throw e;
+                }
+            }
+            try {
+                weekOfYearStmtOfDate.execute(WEEK_OF_YER_FUNCTION_STMT_OF_DATE);
+            } catch (final SQLException e) {
+                final String msg = e.getMessage();
+                if (!msg.contains("FUNCTION 'SCQ_WOYD' already exists.")) {
+                    throw e;
+                }
+            }try {
+                weekOfYearStmtOfTimestamp.execute(WEEK_OF_YER_FUNCTION_STMT_OF_TIMESTAMP);
+            } catch (final SQLException e) {
+                final String msg = e.getMessage();
+                if (!msg.contains("FUNCTION 'SCQ_WOYT' already exists.")) {
                     throw e;
                 }
             }
