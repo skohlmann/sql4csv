@@ -23,7 +23,7 @@ import de.speexx.csv.table.app.sql.SelectData;
 
 public class Configuration {
     
-    @Parameter(names={"-h", "--no-header"}, description="If set no column name header is in the output.")
+    @Parameter(names={"-n", "--no-header"}, description="If set no column name header is in the output.")
     private boolean withoutHeader = false;
     
     @Parameter(names={"-t", "--no-type"}, description="If set no automated type detection is performed.")
@@ -32,7 +32,7 @@ public class Configuration {
     @Parameter(names={"-v", "--verbose"}, description="Print out more information.")
     private boolean verbose = false;
     
-    @Parameter(names={"--help"}, description="Prints a help reference.")
+    @Parameter(names={"-h", "--help"}, description="Prints a help reference.", help = true)
     private boolean help = false;
     
     @ParametersDelegate
