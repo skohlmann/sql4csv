@@ -47,6 +47,7 @@ import org.slf4j.LoggerFactory;
 public class Application {
 
     private static final Logger LOG = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+    private static final String APPLICATION_NAME = "scq";
 
     public static void main(final String... args) {
         try {
@@ -63,6 +64,7 @@ public class Application {
     void run(final String... args) throws Exception {
         final Configuration conf = new Configuration();
         final JCommander jc = new JCommander(conf);
+        jc.setProgramName(APPLICATION_NAME);
         jc.parse(args);
         
         if (conf.isHelp()) {

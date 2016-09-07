@@ -34,7 +34,7 @@ public final class SelectData implements SelectQuery {
     
     private static final String FROM_CLAUSE = "from";
 
-    @Parameter(description = "Query", required = true)
+    @Parameter(description = "query", required = true)
     private final List<String> queryParts = new ArrayList<>();
 
     public SelectQueryData getQueryData() {
