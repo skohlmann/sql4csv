@@ -58,7 +58,7 @@ which I don't want to import to a dedicated RDBMS for only onetime usage.
 # <a name='installation' />Download and Installation
 
 1. Download the latest prebuild version from our homepage: 
-   [sql4csv-0.1.0-bin.zip](http://www.speexx.de/sql4csv/sql4csv-0.1.0-bin.zip).
+   [sql4csv-LATEST-bin.zip](http://www.speexx.de/sql4csv/LATEST).
 2. Unpack the archive with the tool of your choice.
 3. Adjust your `PATH` environment variable by adding the `sql4csv` directory.
 
